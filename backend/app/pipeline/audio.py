@@ -20,8 +20,11 @@ def normalize(src: Path, dst: Path) -> float:
         raise RuntimeError("ffmpeg not found on PATH; install it (e.g. `brew install ffmpeg`)")
 
     dst.parent.mkdir(parents=True, exist_ok=True)
+    # Uploads are untrusted: a playlist-style file (e.g. HLS) could otherwise make ffmpeg
+    # fetch URLs. Only local file reads are allowed.
     cmd = [
         ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+        "-protocol_whitelist", "file,pipe",
         "-i", str(src),
         "-vn", "-ac", "1", "-ar", str(SAMPLE_RATE), "-c:a", "pcm_s16le",
         str(dst),
