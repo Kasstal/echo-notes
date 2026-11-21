@@ -1,0 +1,24 @@
+# EchoNotes backend — Python 3.11
+# Pin pyannote.audio to 3.3.x per the stack decision; let the rest resolve.
+
+fastapi
+uvicorn[standard]
+sqlmodel
+python-multipart
+python-dotenv
+
+# ASR
+faster-whisper
+
+# Diarization
+pyannote.audio>=3.3,<3.4
+
+# Summarization
+anthropic
+
+# Evaluation (WER / DER)
+jiwer
+pyannote.metrics
+
+# Tests
+pytest
