@@ -27,10 +27,18 @@ def _get_pipeline():
         if _pipeline is None:
             if not config.HF_TOKEN:
                 raise RuntimeError("HF_TOKEN is not set. " + TERMS_HINT)
+            import torch
             from pyannote.audio import Pipeline
+            from pyannote.audio.core.task import Problem, Resolution, Specifications
+            from torch.torch_version import TorchVersion
 
+            # torch >= 2.6 loads checkpoints with weights_only=True, which rejects these
+            # classes stored in the pyannote 3.x checkpoints. Allow just them instead of
+            # turning the check off.
+            safe = [TorchVersion, Specifications, Problem, Resolution]
             try:
-                pipeline = Pipeline.from_pretrained(MODEL_ID, use_auth_token=config.HF_TOKEN)
+                with torch.serialization.safe_globals(safe):
+                    pipeline = Pipeline.from_pretrained(MODEL_ID, use_auth_token=config.HF_TOKEN)
             except Exception as e:
                 raise RuntimeError(f"could not load {MODEL_ID}: {e}. {TERMS_HINT}") from e
             # pyannote returns None instead of raising when the gated model is not accessible.
