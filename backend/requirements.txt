@@ -12,6 +12,12 @@ faster-whisper
 
 # Diarization
 pyannote.audio>=3.3,<3.4
+# pyannote 3.3 breaks on newer releases: torchaudio 2.9 removed AudioMetaData and
+# huggingface_hub 1.0 removed use_auth_token. It also imports matplotlib without declaring it.
+torch==2.8.0
+torchaudio==2.8.0
+huggingface_hub<1.0
+matplotlib
 
 # Summarization
 anthropic
