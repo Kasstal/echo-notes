@@ -221,3 +221,26 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# EchoNotes runtime data (db, audio, session outputs) — never commit.
+# Keep the folder in the layout but ignore everything inside it.
+data/*
+!data/.gitkeep
+
+# Bot browser profile
+bot/profile/
+
+# Eval reference recordings (audio gitignored; annotations are tracked)
+eval/data/**/*.wav
+eval/data/**/*.mp3
+eval/data/**/*.m4a
+eval/data/**/*.mp4
+eval/data/**/*.webm
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/node_modules/
+
+# OS
+.DS_Store
