@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -95,3 +96,116 @@ def test_parse_fills_missing_keys_and_normalizes_action_items():
             {"owner": None, "task": "Book the room", "due": None},
         ],
     }
+
+
+class FakeModel:
+    """Stands in for _call_model: returns queued replies and records each prompt."""
+
+    def __init__(self, *replies):
+        self.replies = list(replies)
+        self.calls = []
+
+    def __call__(self, system, user):
+        self.calls.append((system, user))
+        reply = self.replies.pop(0)
+        return reply(system, user) if callable(reply) else reply
+
+
+@pytest.fixture
+def fake_model(monkeypatch):
+    def install(*replies):
+        fake = FakeModel(*replies)
+        monkeypatch.setattr(sm, "_call_model", fake)
+        return fake
+
+    return install
+
+
+SHORT = _transcript(
+    [
+        {"start": 0.0, "end": 3.0, "speaker": "SPEAKER_00", "text": "Let's ship upload mode first."},
+        {"start": 3.5, "end": 6.0, "speaker": "SPEAKER_01", "text": "I'll write the eval script by Wednesday."},
+    ],
+    {"SPEAKER_00": "Speaker 1", "SPEAKER_01": "Speaker 2"},
+)
+
+
+def test_summarize_sends_formatted_transcript(fake_model):
+    fake = fake_model("```json\n" + json.dumps(VALID) + "\n```")
+    assert sm.summarize(SHORT) == VALID
+    system, user = fake.calls[0]
+    assert system == sm.SYSTEM_PROMPT
+    assert "[00:03] Speaker 2: I'll write the eval script by Wednesday." in user
+
+
+def test_summarize_retries_once_on_invalid_json(fake_model):
+    fake = fake_model("Sorry, here it is: {broken", json.dumps(VALID))
+    assert sm.summarize(SHORT) == VALID
+    assert len(fake.calls) == 2
+    assert fake.calls[1][1].endswith(sm.RETRY_NOTE)
+
+
+def test_summarize_raises_after_second_invalid_reply(fake_model):
+    fake = fake_model("nope", "still nope")
+    with pytest.raises(sm.SummaryError, match="invalid summary twice"):
+        sm.summarize(SHORT)
+    assert len(fake.calls) == 2
+
+
+def test_summarize_empty_transcript_skips_the_api(fake_model):
+    fake = fake_model()
+    assert sm.summarize(_transcript([])) == sm.empty_summary()
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("missing", ["ANTHROPIC_MODEL", "ANTHROPIC_API_KEY"])
+def test_missing_config_gives_a_clear_error(monkeypatch, missing):
+    monkeypatch.setattr(sm.config, "ANTHROPIC_MODEL", "some-model")
+    monkeypatch.setattr(sm.config, "ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(sm.config, missing, "")
+    with pytest.raises(sm.SummaryError, match=missing):
+        sm.summarize(SHORT)
+
+
+class FakeClient:
+    def __init__(self, response):
+        self.messages = self
+        self.response = response
+        self.kwargs = None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        return self.response
+
+
+def _response(stop_reason, *texts):
+    blocks = [SimpleNamespace(type="thinking", thinking="")]
+    blocks += [SimpleNamespace(type="text", text=t) for t in texts]
+    return SimpleNamespace(stop_reason=stop_reason, content=blocks)
+
+
+@pytest.fixture
+def fake_client(monkeypatch):
+    monkeypatch.setattr(sm.config, "ANTHROPIC_MODEL", "model-from-env")
+    monkeypatch.setattr(sm.config, "ANTHROPIC_API_KEY", "test-key")
+
+    def install(response):
+        client = FakeClient(response)
+        monkeypatch.setattr(sm, "_client", client)
+        return client
+
+    return install
+
+
+def test_call_model_uses_env_model_and_joins_text_blocks(fake_client):
+    client = fake_client(_response("end_turn", '{"tldr": ', '"ok"}'))
+    assert sm._call_model("sys", "user") == '{"tldr": "ok"}'
+    assert client.kwargs["model"] == "model-from-env"
+    assert client.kwargs["system"] == "sys"
+    assert client.kwargs["messages"] == [{"role": "user", "content": "user"}]
+
+
+def test_call_model_reports_refusal(fake_client):
+    fake_client(_response("refusal"))
+    with pytest.raises(sm.SummaryError, match="declined"):
+        sm._call_model("sys", "user")

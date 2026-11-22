@@ -5,7 +5,41 @@ from __future__ import annotations
 import json
 import re
 
+import anthropic
+
+from .. import config
+
 SUMMARY_KEYS = ("tldr", "key_points", "decisions", "action_items")
+MAX_TOKENS = 16_000
+
+SYSTEM_PROMPT = """\
+You summarize meeting and lecture transcripts.
+
+The transcript is given as lines of the form "[mm:ss] Speaker: text". It may mix English, \
+Kazakh and Russian. Write the summary in the language most of the transcript is in.
+
+Return only a JSON object with exactly these keys, with no prose and no code fences:
+{"tldr": "...", "key_points": ["..."], "decisions": ["..."], \
+"action_items": [{"owner": "...", "task": "...", "due": null}]}
+
+Rules:
+- tldr is one or two sentences.
+- Use only information present in the transcript. Do not add outside knowledge.
+- If something is unclear or inaudible, leave it out rather than guess.
+- decisions lists only what the participants actually agreed on or decided.
+- action_items lists only tasks someone actually committed to. owner is the speaker name \
+exactly as written in the transcript, or null if it is not clear who committed. due is the \
+deadline as stated, or null if none was given.
+- Any list may be empty."""
+
+RETRY_NOTE = (
+    "\n\nYour previous reply was not valid JSON. Reply with only the JSON object, "
+    "no prose and no code fences."
+)
+
+
+class SummaryError(RuntimeError):
+    """Summarization failed. The caller keeps the transcript and marks done_with_warnings."""
 
 
 class SummaryParseError(ValueError):
@@ -110,12 +144,61 @@ def format_transcript(transcript: dict) -> str:
     return "\n".join(lines)
 
 
+_client: anthropic.Anthropic | None = None
+
+
+def _get_client() -> anthropic.Anthropic:
+    global _client
+    if not config.ANTHROPIC_MODEL:
+        raise SummaryError("ANTHROPIC_MODEL is not set in .env")
+    if not config.ANTHROPIC_API_KEY:
+        raise SummaryError("ANTHROPIC_API_KEY is not set in .env")
+    if _client is None:
+        _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    return _client
+
+
+def _call_model(system: str, user: str) -> str:
+    client = _get_client()
+    try:
+        response = client.messages.create(
+            model=config.ANTHROPIC_MODEL,
+            max_tokens=MAX_TOKENS,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+    except anthropic.AuthenticationError as e:
+        raise SummaryError("Claude API rejected the key; check ANTHROPIC_API_KEY") from e
+    except anthropic.NotFoundError as e:
+        raise SummaryError(
+            f"Claude API does not know model {config.ANTHROPIC_MODEL!r}; check ANTHROPIC_MODEL"
+        ) from e
+    except anthropic.APIStatusError as e:
+        raise SummaryError(f"Claude API error {e.status_code}: {e.message}") from e
+    except anthropic.APIConnectionError as e:
+        raise SummaryError(f"Could not reach the Claude API: {e}") from e
+    if response.stop_reason == "refusal":
+        raise SummaryError("The model declined to summarize this transcript")
+    return "".join(block.text for block in response.content if block.type == "text")
+
+
+def _ask_json(system: str, user: str) -> dict:
+    try:
+        return parse_summary(_call_model(system, user))
+    except SummaryParseError:
+        pass
+    try:
+        return parse_summary(_call_model(system, user + RETRY_NOTE))
+    except SummaryParseError as e:
+        raise SummaryError(f"Model returned an invalid summary twice: {e}") from e
+
+
 def summarize(transcript: dict) -> dict:
     """Summarize `transcript` and return summary.json content.
 
-    Format the transcript as `[mm:ss] Speaker N: text` lines using display names.
-    Return only JSON matching the summary contract, using only information present
-    in the transcript. For long transcripts (> ~60k chars) summarize in chunks and
-    then summarize the chunk summaries (map-reduce).
+    Raises SummaryError when the API fails or the reply is still invalid after one retry.
     """
-    raise NotImplementedError
+    text = format_transcript(transcript)
+    if not text:
+        return empty_summary()
+    return _ask_json(SYSTEM_PROMPT, f"Transcript:\n\n{text}")
