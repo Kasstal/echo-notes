@@ -1,23 +1,20 @@
 import './App.css'
+import { useHashRoute } from './router'
 
 function App() {
-  return (
-    <main className="app">
-      <header className="app__header">
-        <h1>EchoNotes</h1>
-        <p className="app__tagline">
-          Join a meeting, record it, and get a speaker-labeled transcript and summary.
-        </p>
-      </header>
+  const route = useHashRoute()
 
-      <section className="card">
-        <h2>Scaffold ready</h2>
-        <p>
-          This is the M0 placeholder page. Upload mode, bot mode, and the sessions
-          dashboard are built in later milestones.
-        </p>
-      </section>
-    </main>
+  return (
+    <div className="shell">
+      <header className="topbar">
+        <a className="brand" href="#/">
+          EchoNotes
+        </a>
+      </header>
+      <main className="page">
+        {route.page === 'session' ? <p>Session {route.id}</p> : <p>Sessions</p>}
+      </main>
+    </div>
   )
 }
 
