@@ -4,7 +4,8 @@
 recordings and measures how close the output is to a manual transcript:
 
 - **WER** (word error rate): substituted, deleted and inserted words divided by the number of words in
-  `reference.txt`. Both texts are lowercased and stripped of punctuation first.
+  `reference.txt`. Both texts are lowercased, hyphens and dashes become spaces, and the rest of the
+  punctuation is stripped.
 - **DER** (diarization error rate): the share of reference speech time that is missed, falsely detected,
   or given to the wrong speaker, compared with `reference.rttm`. Boundaries get a 0.25 s collar.
   Speaker names do not have to match; the best mapping is found automatically.

@@ -41,6 +41,9 @@ COLLAR_SEC = 0.25
 TEXT_NORM = jiwer.Compose(
     [
         jiwer.ToLowerCase(),
+        # Whisper writes "follow-up" or "10-minute" where a reference may have two words;
+        # stripping the hyphen would glue them into one token.
+        jiwer.SubstituteRegexes({r"[-‐‑–—]": " "}),
         jiwer.RemovePunctuation(),
         # Word splitting only looks at spaces, so line breaks in reference.txt must go first.
         jiwer.RemoveWhiteSpace(replace_by_space=True),
