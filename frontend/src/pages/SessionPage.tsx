@@ -10,6 +10,7 @@ import {
   type Transcript,
 } from '../api'
 import { SearchBox } from '../components/SearchBox'
+import { SessionActions } from '../components/SessionActions'
 import { SpeakerLegend } from '../components/SpeakerLegend'
 import { StatusBadge } from '../components/StatusBadge'
 import { StatusStepper } from '../components/StatusStepper'
@@ -161,6 +162,13 @@ export function SessionPage({ id, t }: { id: string; t: number | null }) {
             </li>
           </ul>
         </div>
+        <SessionActions
+          session={session}
+          onRetryStarted={() => {
+            setData((prev) => (prev ? { ...prev, status: 'summarizing', error: null } : prev))
+            reload()
+          }}
+        />
       </header>
 
       <StatusStepper status={session.status} source={session.source} lastActive={lastActive} />
