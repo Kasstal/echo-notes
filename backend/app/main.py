@@ -1,14 +1,30 @@
-"""FastAPI app: CORS, health check, and (later) the API router and worker startup."""
+"""FastAPI app: CORS, health check, API router, worker lifecycle, and the built frontend."""
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
-from . import config
+from . import config, db, worker
 from .api import router as api_router
 
-app = FastAPI(title="EchoNotes")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    db.init_db()
+    worker.recover_interrupted()
+    worker.start()
+    try:
+        yield
+    finally:
+        worker.stop()
+
+
+app = FastAPI(title="EchoNotes", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,9 +40,8 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-# TODO(M2): include the session routes and start the worker thread once they land.
-#   from .worker import start_worker
-#   @app.on_event("startup")
-#   def _startup() -> None:
-#       init_db(); start_worker()
 app.include_router(api_router)
+
+# Mounted last so it never shadows /api routes.
+if config.FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=config.FRONTEND_DIST, html=True), name="frontend")
