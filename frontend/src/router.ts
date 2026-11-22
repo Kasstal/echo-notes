@@ -26,7 +26,14 @@ export function navigate(hash: string) {
 export function useHashRoute(): Route {
   const [route, setRoute] = useState(() => parseHash(window.location.hash))
   useEffect(() => {
-    const onChange = () => setRoute(parseHash(window.location.hash))
+    const onChange = () => {
+      const next = parseHash(window.location.hash)
+      setRoute((prev) => {
+        const samePage = prev.page === 'session' && next.page === 'session' && prev.id === next.id
+        if (!samePage) window.scrollTo(0, 0)
+        return next
+      })
+    }
     window.addEventListener('hashchange', onChange)
     return () => window.removeEventListener('hashchange', onChange)
   }, [])

@@ -1,4 +1,5 @@
 import './App.css'
+import { SessionPage } from './pages/SessionPage'
 import { SessionsPage } from './pages/SessionsPage'
 import { useHashRoute } from './router'
 
@@ -13,7 +14,7 @@ function App() {
         </a>
       </header>
       <main className="page">
-        {route.page === 'session' ? <p>Session {route.id}</p> : <SessionsPage />}
+        {route.page === 'session' ? <SessionPage key={route.id} id={route.id} /> : <SessionsPage />}
       </main>
     </div>
   )
