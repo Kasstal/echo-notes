@@ -70,13 +70,17 @@ export class ApiError extends Error {
   }
 }
 
+const UNREACHABLE = 'Cannot reach the EchoNotes backend. Check that it is running.'
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response
   try {
     res = await fetch(API_BASE + path, init)
   } catch {
-    throw new ApiError(0, 'Cannot reach the EchoNotes backend. Check that it is running.')
+    throw new ApiError(0, UNREACHABLE)
   }
+  // The Vite dev proxy answers 502/504 with an empty body when the backend is down.
+  if (res.status === 502 || res.status === 504) throw new ApiError(res.status, UNREACHABLE)
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`
     try {

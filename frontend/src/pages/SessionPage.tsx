@@ -210,7 +210,13 @@ export function SessionPage({ id, t }: { id: string; t: number | null }) {
               />
             </>
           ) : (
-            <p className="muted">The transcript appears once speakers have been identified.</p>
+            <p className="muted">
+              {session.status === 'failed'
+                ? 'Processing failed before a transcript was written.'
+                : session.status === 'recording'
+                  ? 'The bot is recording. The transcript is made after it leaves the call.'
+                  : 'The transcript appears once speakers have been identified.'}
+            </p>
           )}
         </section>
       </div>
