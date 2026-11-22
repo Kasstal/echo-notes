@@ -11,6 +11,7 @@ from .. import config
 
 SUMMARY_KEYS = ("tldr", "key_points", "decisions", "action_items")
 MAX_TOKENS = 16_000
+CHUNK_CHARS = 60_000
 
 SYSTEM_PROMPT = """\
 You summarize meeting and lecture transcripts.
@@ -31,6 +32,23 @@ Rules:
 exactly as written in the transcript, or null if it is not clear who committed. due is the \
 deadline as stated, or null if none was given.
 - Any list may be empty."""
+
+REDUCE_PROMPT = """\
+You merge partial summaries of one long meeting or lecture into a single summary.
+
+You get a JSON list of partial summaries, one per consecutive part of the transcript, in order. \
+Each has the keys tldr, key_points, decisions and action_items.
+
+Return only a JSON object with exactly these keys, with no prose and no code fences:
+{"tldr": "...", "key_points": ["..."], "decisions": ["..."], \
+"action_items": [{"owner": "...", "task": "...", "due": null}]}
+
+Rules:
+- tldr is one or two sentences covering the whole meeting.
+- Use only information present in the partial summaries. Do not add anything new.
+- Merge duplicates and keep the most important key points.
+- Keep every decision and action item, merging only exact duplicates. Keep owner and due as given.
+- Write in the same language as the partial summaries."""
 
 RETRY_NOTE = (
     "\n\nYour previous reply was not valid JSON. Reply with only the JSON object, "
@@ -144,6 +162,30 @@ def format_transcript(transcript: dict) -> str:
     return "\n".join(lines)
 
 
+def split_chunks(text: str, limit: int) -> list[str]:
+    """Split on line boundaries into chunks of at most `limit` characters."""
+    chunks: list[str] = []
+    current: list[str] = []
+    size = 0
+    for line in text.split("\n"):
+        if len(line) > limit and current:
+            chunks.append("\n".join(current))
+            current, size = [], 0
+        while len(line) > limit:
+            chunks.append(line[:limit])
+            line = line[limit:]
+        added = len(line) + (1 if current else 0)
+        if current and size + added > limit:
+            chunks.append("\n".join(current))
+            current, size = [], 0
+            added = len(line)
+        current.append(line)
+        size += added
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
+
+
 _client: anthropic.Anthropic | None = None
 
 
@@ -201,4 +243,19 @@ def summarize(transcript: dict) -> dict:
     text = format_transcript(transcript)
     if not text:
         return empty_summary()
-    return _ask_json(SYSTEM_PROMPT, f"Transcript:\n\n{text}")
+    if len(text) <= CHUNK_CHARS:
+        return _ask_json(SYSTEM_PROMPT, f"Transcript:\n\n{text}")
+
+    chunks = split_chunks(text, CHUNK_CHARS)
+    partials = [
+        _ask_json(
+            SYSTEM_PROMPT,
+            f"This is part {i} of {len(chunks)} of a longer transcript. "
+            f"Summarize only this part.\n\nTranscript part {i}/{len(chunks)}:\n\n{chunk}",
+        )
+        for i, chunk in enumerate(chunks, start=1)
+    ]
+    return _ask_json(
+        REDUCE_PROMPT,
+        "Partial summaries, in order:\n\n" + json.dumps(partials, ensure_ascii=False, indent=2),
+    )

@@ -209,3 +209,59 @@ def test_call_model_reports_refusal(fake_client):
     fake_client(_response("refusal"))
     with pytest.raises(sm.SummaryError, match="declined"):
         sm._call_model("sys", "user")
+
+
+def test_split_chunks_respects_limit_and_line_boundaries():
+    lines = [f"[00:{i:02d}] Speaker 1: " + "x" * 20 for i in range(50)]
+    text = "\n".join(lines)
+    chunks = sm.split_chunks(text, 200)
+    assert all(len(c) <= 200 for c in chunks)
+    assert "\n".join(chunks) == text
+    assert all(line in lines for c in chunks for line in c.split("\n"))
+
+
+def test_split_chunks_cuts_an_oversized_line():
+    chunks = sm.split_chunks("short\n" + "y" * 25, 10)
+    assert all(len(c) <= 10 for c in chunks)
+    assert "".join(chunks).replace("\n", "") == "short" + "y" * 25
+
+
+def test_long_transcript_is_summarized_in_chunks(fake_model):
+    segments = [
+        {"start": i * 5.0, "end": i * 5.0 + 4, "speaker": f"SPEAKER_0{i % 2}", "text": f"Point {i}. " + "words " * 20}
+        for i in range(1000)
+    ]
+    long = _transcript(segments, {"SPEAKER_00": "Speaker 1", "SPEAKER_01": "Speaker 2"})
+    text = sm.format_transcript(long)
+    assert len(text) > sm.CHUNK_CHARS
+    n_chunks = len(sm.split_chunks(text, sm.CHUNK_CHARS))
+    assert n_chunks >= 2
+
+    def partial(system, user):
+        part = user.split("Transcript part ")[1].split("/")[0]
+        return json.dumps({"tldr": f"part {part}", "key_points": [f"kp {part}"], "decisions": [], "action_items": []})
+
+    final = dict(VALID, tldr="Whole meeting.")
+    fake = fake_model(*([partial] * n_chunks), "```json\n" + json.dumps(final) + "\n```")
+
+    assert sm.summarize(long) == final
+    assert len(fake.calls) == n_chunks + 1
+    for system, user in fake.calls[:-1]:
+        assert system == sm.SYSTEM_PROMPT
+        assert len(user) < sm.CHUNK_CHARS + 200
+    reduce_system, reduce_user = fake.calls[-1]
+    assert reduce_system == sm.REDUCE_PROMPT
+    for part in range(1, n_chunks + 1):
+        assert f'"kp {part}"' in reduce_user
+
+
+def test_chunk_retry_applies_per_call(fake_model, monkeypatch):
+    monkeypatch.setattr(sm, "CHUNK_CHARS", 60)
+    long = _transcript(
+        [{"start": i, "end": i + 1, "speaker": "SPEAKER_00", "text": "a sentence of some length"} for i in range(6)]
+    )
+    n_chunks = len(sm.split_chunks(sm.format_transcript(long), 60))
+    ok = json.dumps(VALID)
+    fake = fake_model("garbage", *([ok] * n_chunks), ok)
+    assert sm.summarize(long) == VALID
+    assert len(fake.calls) == n_chunks + 2
