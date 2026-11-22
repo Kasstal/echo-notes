@@ -14,7 +14,7 @@ function App() {
         </a>
       </header>
       <main className="page">
-        {route.page === 'session' ? <SessionPage key={route.id} id={route.id} /> : <SessionsPage />}
+        {route.page === 'session' ? <SessionPage key={route.id} id={route.id} t={route.t} /> : <SessionsPage />}
       </main>
     </div>
   )

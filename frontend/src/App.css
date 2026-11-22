@@ -512,3 +512,154 @@
     display: none;
   }
 }
+
+.btn--small {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.transcript-panel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.6rem;
+  margin: 1rem 0 0.75rem;
+  padding: 0 0 1rem;
+  list-style: none;
+  border-bottom: 1px solid var(--line);
+}
+
+.legend__item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.35rem 0.25rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.legend__swatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: var(--speaker);
+}
+
+.legend__name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.05rem 0.4rem 0.05rem 0;
+  border: 0;
+  background: none;
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--speaker);
+  cursor: pointer;
+}
+
+.legend__name--static {
+  cursor: default;
+}
+
+.legend__edit {
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-decoration: underline;
+}
+
+.legend__name:hover .legend__edit {
+  color: var(--accent);
+}
+
+.legend__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.legend__form input {
+  width: 11rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--speaker);
+  border-radius: var(--radius-s);
+  font-size: 0.92rem;
+}
+
+.legend__error {
+  flex-basis: 100%;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.transcript {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.seg {
+  display: grid;
+  grid-template-columns: 3.75rem minmax(0, 1fr);
+  gap: 0 0.9rem;
+  scroll-margin: 6rem;
+}
+
+.seg--turn {
+  margin-top: 0.9rem;
+}
+
+.seg__time {
+  padding-top: 0.15rem;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  text-decoration: none;
+  text-align: right;
+}
+
+.seg--turn .seg__time {
+  padding-top: 1.55rem;
+}
+
+.seg__time:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.seg__body {
+  padding: 0.1rem 0 0.35rem 0.9rem;
+  border-left: 3px solid var(--speaker);
+}
+
+.seg__speaker {
+  display: block;
+  margin: 0.2rem 0 0.15rem;
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--speaker);
+}
+
+.seg__text {
+  margin: 0;
+  max-width: 72ch;
+  line-height: 1.6;
+}
+
+.seg--active .seg__body {
+  background: var(--accent-soft);
+}
+
+.seg--active .seg__time {
+  color: var(--accent);
+  font-weight: 700;
+}

@@ -1,15 +1,32 @@
-import { useCallback, useState } from 'react'
-import { getSession, isTerminal, type SessionDetail, type Status } from '../api'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { getSession, isTerminal, renameSpeakers, type SessionDetail, type Status, type Transcript } from '../api'
+import { SpeakerLegend } from '../components/SpeakerLegend'
 import { StatusBadge } from '../components/StatusBadge'
 import { StatusStepper } from '../components/StatusStepper'
 import { SummaryPanel } from '../components/SummaryPanel'
-import { formatDate, formatDuration, sessionTitle } from '../format'
+import { TranscriptView } from '../components/TranscriptView'
+import { formatDate, formatDuration, segmentDomId, sessionTitle } from '../format'
+import { speakerColors, speakerLabels } from '../speakers'
 import { usePolling } from '../usePolling'
 
 const LANGUAGES: Record<string, string> = { en: 'English', ru: 'Russian', kk: 'Kazakh' }
 
-export function SessionPage({ id }: { id: string }) {
+function segmentAt(transcript: Transcript, t: number): number | null {
+  let found: number | null = null
+  transcript.segments.forEach((seg, i) => {
+    if (seg.start <= t) found = i
+  })
+  return found
+}
+
+function scrollToSegment(index: number) {
+  document.getElementById(segmentDomId(index))?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+
+export function SessionPage({ id, t }: { id: string; t: number | null }) {
   const [lastActive, setLastActive] = useState<Status | null>(null)
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const jumpedToLinkedTime = useRef(false)
 
   const load = useCallback(async () => {
     const session = await getSession(id)
@@ -17,7 +34,39 @@ export function SessionPage({ id }: { id: string }) {
     return session
   }, [id])
 
-  const { data: session, error } = usePolling<SessionDetail>(load, (s) => !isTerminal(s.status))
+  const { data: session, setData, error, reload } = usePolling<SessionDetail>(load, (s) => !isTerminal(s.status))
+  const transcript = session?.transcript ?? null
+
+  const labels = useMemo(() => (transcript ? speakerLabels(transcript) : []), [transcript])
+  const colors = useMemo(() => speakerColors(labels), [labels])
+
+  // A shared link like #/sessions/abc?t=95 opens at that moment of the transcript.
+  const linkedIndex = transcript && t !== null ? segmentAt(transcript, t) : null
+  const activeIndex = selectedIndex ?? linkedIndex
+
+  useEffect(() => {
+    if (linkedIndex === null || jumpedToLinkedTime.current) return
+    jumpedToLinkedTime.current = true
+    requestAnimationFrame(() => scrollToSegment(linkedIndex))
+  }, [linkedIndex])
+
+  const onRename = useCallback(
+    async (label: string, name: string) => {
+      await renameSpeakers(id, { [label]: name })
+      setData((prev) =>
+        prev?.transcript
+          ? { ...prev, transcript: { ...prev.transcript, speakers: { ...prev.transcript.speakers, [label]: name } } }
+          : prev,
+      )
+      reload()
+    },
+    [id, setData, reload],
+  )
+
+  const onSelect = useCallback((index: number) => {
+    setSelectedIndex(index)
+    scrollToSegment(index)
+  }, [])
 
   if (!session) {
     return (
@@ -34,7 +83,6 @@ export function SessionPage({ id }: { id: string }) {
     )
   }
 
-  const transcript = session.transcript
   const language = transcript?.language
 
   return (
@@ -67,8 +115,23 @@ export function SessionPage({ id }: { id: string }) {
       <div className="session-body">
         <SummaryPanel summary={session.summary} status={session.status} />
         <section className="transcript-panel" aria-labelledby="transcript-heading">
-          <h2 id="transcript-heading">Transcript</h2>
-          {!transcript && <p className="muted">The transcript appears once speakers have been identified.</p>}
+          <div className="transcript-panel__head">
+            <h2 id="transcript-heading">Transcript</h2>
+          </div>
+          {transcript ? (
+            <>
+              <SpeakerLegend labels={labels} speakers={transcript.speakers} colors={colors} onRename={onRename} />
+              <TranscriptView
+                sessionId={session.id}
+                transcript={transcript}
+                colors={colors}
+                activeIndex={activeIndex}
+                onSelect={onSelect}
+              />
+            </>
+          ) : (
+            <p className="muted">The transcript appears once speakers have been identified.</p>
+          )}
         </section>
       </div>
     </div>

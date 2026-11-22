@@ -44,3 +44,7 @@ export function formatDate(iso: string): string {
 export function sessionTitle(title: string | null | undefined, createdAt: string): string {
   return title?.trim() || `Recording from ${formatDate(createdAt)}`
 }
+
+export function segmentDomId(index: number): string {
+  return `seg-${index}`
+}
