@@ -2,6 +2,87 @@
 
 from __future__ import annotations
 
+import json
+import re
+
+SUMMARY_KEYS = ("tldr", "key_points", "decisions", "action_items")
+
+
+class SummaryParseError(ValueError):
+    """The model's reply is not a usable summary JSON object."""
+
+
+def empty_summary() -> dict:
+    return {"tldr": "", "key_points": [], "decisions": [], "action_items": []}
+
+
+def _strip_fences(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[A-Za-z]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    return text.strip()
+
+
+def _str_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [v.strip() for v in value if isinstance(v, str) and v.strip()]
+
+
+def _optional_str(value) -> str | None:
+    if value is None:
+        return None
+    value = str(value).strip()
+    return value or None
+
+
+def _action_items(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    items = []
+    for item in value:
+        if isinstance(item, str):
+            item = {"task": item}
+        if not isinstance(item, dict):
+            continue
+        task = _optional_str(item.get("task"))
+        if task:
+            items.append(
+                {
+                    "owner": _optional_str(item.get("owner")),
+                    "task": task,
+                    "due": _optional_str(item.get("due")),
+                }
+            )
+    return items
+
+
+def parse_summary(text: str) -> dict:
+    """Parse a model reply into a dict that matches the summary contract."""
+    cleaned = _strip_fences(text)
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        # Some replies wrap the object in a sentence; try the outermost braces once.
+        start, end = cleaned.find("{"), cleaned.rfind("}")
+        if start == -1 or end <= start:
+            raise SummaryParseError("reply contains no JSON object") from None
+        try:
+            data = json.loads(cleaned[start : end + 1])
+        except json.JSONDecodeError as e:
+            raise SummaryParseError(f"invalid JSON: {e}") from None
+    if not isinstance(data, dict):
+        raise SummaryParseError("reply JSON is not an object")
+    if not any(key in data for key in SUMMARY_KEYS):
+        raise SummaryParseError("reply JSON has none of the summary keys")
+    return {
+        "tldr": _optional_str(data.get("tldr")) or "",
+        "key_points": _str_list(data.get("key_points")),
+        "decisions": _str_list(data.get("decisions")),
+        "action_items": _action_items(data.get("action_items")),
+    }
+
 
 def _timestamp(seconds: float) -> str:
     total = int(seconds)

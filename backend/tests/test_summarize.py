@@ -1,3 +1,7 @@
+import json
+
+import pytest
+
 from app.pipeline import summarize as sm
 
 
@@ -36,3 +40,58 @@ def test_format_falls_back_to_label_and_unknown():
         "[62:05] Unknown speaker: Hello\n"
         "[62:07] SPEAKER_05: Yes"
     )
+
+
+VALID = {
+    "tldr": "The team planned the demo.",
+    "key_points": ["Upload mode is the demo path"],
+    "decisions": ["Record the video on Thursday"],
+    "action_items": [{"owner": "Speaker 2", "task": "Write eval script", "due": "Wednesday"}],
+}
+
+
+def test_parse_plain_json():
+    assert sm.parse_summary(json.dumps(VALID)) == VALID
+
+
+@pytest.mark.parametrize(
+    "wrapped",
+    [
+        "```json\n{}\n```",
+        "```\n{}\n```",
+        "  ```JSON\n{}```  ",
+        "Here is the summary:\n{}\nLet me know if you need more.",
+    ],
+)
+def test_parse_strips_code_fences_and_prose(wrapped):
+    assert sm.parse_summary(wrapped.replace("{}", json.dumps(VALID))) == VALID
+
+
+@pytest.mark.parametrize("bad", ["not json at all", "{\"tldr\": ", "[1, 2, 3]", "{\"foo\": 1}", ""])
+def test_parse_rejects_invalid(bad):
+    with pytest.raises(sm.SummaryParseError):
+        sm.parse_summary(bad)
+
+
+def test_parse_fills_missing_keys_and_normalizes_action_items():
+    reply = json.dumps(
+        {
+            "tldr": "  Short.  ",
+            "key_points": ["a", "", 5, " b "],
+            "action_items": [
+                {"owner": "Speaker 1", "task": "Send slides"},
+                {"task": "  "},
+                "Book the room",
+                42,
+            ],
+        }
+    )
+    assert sm.parse_summary(reply) == {
+        "tldr": "Short.",
+        "key_points": ["a", "b"],
+        "decisions": [],
+        "action_items": [
+            {"owner": "Speaker 1", "task": "Send slides", "due": None},
+            {"owner": None, "task": "Book the room", "due": None},
+        ],
+    }
