@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { getSession, isTerminal, renameSpeakers, type SessionDetail, type Status, type Transcript } from '../api'
+import {
+  getSession,
+  isTerminal,
+  renameSpeakers,
+  searchSession,
+  type Segment,
+  type SessionDetail,
+  type Status,
+  type Transcript,
+} from '../api'
+import { SearchBox } from '../components/SearchBox'
 import { SpeakerLegend } from '../components/SpeakerLegend'
 import { StatusBadge } from '../components/StatusBadge'
 import { StatusStepper } from '../components/StatusStepper'
@@ -68,6 +78,56 @@ export function SessionPage({ id, t }: { id: string; t: number | null }) {
     scrollToSegment(index)
   }, [])
 
+  const [query, setQuery] = useState('')
+  const [search, setSearch] = useState<{ q: string; segments: Segment[]; error?: string } | null>(null)
+  const [cursor, setCursor] = useState(-1)
+  const hasTranscript = transcript !== null
+  const q = query.trim()
+
+  useEffect(() => {
+    if (!q || !hasTranscript) return
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      try {
+        const segments = await searchSession(id, q)
+        if (!cancelled) setSearch({ q, segments })
+      } catch (err) {
+        if (!cancelled) setSearch({ q, segments: [], error: (err as Error).message })
+      }
+      if (!cancelled) setCursor(-1)
+    }, 250)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [q, id, hasTranscript])
+
+  // Results only count while they belong to what is typed now.
+  const activeSearch = q && search?.q === q ? search : null
+  const matchIndices = useMemo(() => {
+    if (!activeSearch || !transcript) return []
+    const keys = new Set(activeSearch.segments.map((s) => `${s.start}|${s.speaker}`))
+    return transcript.segments.flatMap((s, i) => (keys.has(`${s.start}|${s.speaker}`) ? [i] : []))
+  }, [activeSearch, transcript])
+  const matchSet = useMemo(() => new Set(matchIndices), [matchIndices])
+
+  function stepMatch(delta: number) {
+    if (matchIndices.length === 0) return
+    const next = (cursor + delta + matchIndices.length) % matchIndices.length
+    setCursor(next)
+    onSelect(matchIndices[next])
+  }
+
+  let searchStatus: string | null = null
+  if (q && !activeSearch) searchStatus = 'Searching…'
+  else if (activeSearch?.error) searchStatus = activeSearch.error
+  else if (activeSearch) {
+    const n = matchIndices.length
+    if (n === 0) searchStatus = 'No matches'
+    else if (cursor >= 0) searchStatus = `${cursor + 1} of ${n} ${n === 1 ? 'match' : 'matches'}`
+    else searchStatus = `${n} ${n === 1 ? 'match' : 'matches'}`
+  }
+
   if (!session) {
     return (
       <div className="session-page">
@@ -117,6 +177,16 @@ export function SessionPage({ id, t }: { id: string; t: number | null }) {
         <section className="transcript-panel" aria-labelledby="transcript-heading">
           <div className="transcript-panel__head">
             <h2 id="transcript-heading">Transcript</h2>
+            {transcript && (
+              <SearchBox
+                query={query}
+                onQueryChange={setQuery}
+                status={searchStatus}
+                matchCount={matchIndices.length}
+                onPrev={() => stepMatch(-1)}
+                onNext={() => stepMatch(1)}
+              />
+            )}
           </div>
           {transcript ? (
             <>
@@ -127,6 +197,8 @@ export function SessionPage({ id, t }: { id: string; t: number | null }) {
                 colors={colors}
                 activeIndex={activeIndex}
                 onSelect={onSelect}
+                highlight={activeSearch ? q : ''}
+                matches={matchSet}
               />
             </>
           ) : (

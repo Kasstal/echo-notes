@@ -663,3 +663,32 @@
   color: var(--accent);
   font-weight: 700;
 }
+
+.search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.6rem;
+}
+
+.search input {
+  width: 16rem;
+  max-width: 100%;
+}
+
+.search__status {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.search__nav {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.seg mark {
+  background: var(--mark);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}

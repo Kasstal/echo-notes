@@ -10,9 +10,21 @@ interface Props {
   colors: Record<string, string>
   activeIndex: number | null
   onSelect: (index: number) => void
+  highlight: string
+  matches: Set<number>
 }
 
-export function TranscriptView({ sessionId, transcript, colors, activeIndex, onSelect }: Props) {
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function highlighted(text: string, query: string) {
+  if (!query) return text
+  const parts = text.split(new RegExp(`(${escapeRegExp(query)})`, 'gi'))
+  return parts.map((part, i) => (i % 2 === 1 ? <mark key={i}>{part}</mark> : part))
+}
+
+export function TranscriptView({ sessionId, transcript, colors, activeIndex, onSelect, highlight, matches }: Props) {
   if (transcript.segments.length === 0) {
     return <p className="muted">No speech was detected in this recording.</p>
   }
@@ -32,6 +44,7 @@ export function TranscriptView({ sessionId, transcript, colors, activeIndex, onS
         const classes = ['seg']
         if (showName) classes.push('seg--turn')
         if (i === activeIndex) classes.push('seg--active')
+        if (matches.has(i)) classes.push('seg--match')
         return (
           <li
             key={i}
@@ -44,7 +57,7 @@ export function TranscriptView({ sessionId, transcript, colors, activeIndex, onS
             </a>
             <div className="seg__body">
               {showName && <span className="seg__speaker">{displayName(seg.speaker, transcript.speakers)}</span>}
-              <p className="seg__text">{seg.text}</p>
+              <p className="seg__text">{matches.has(i) ? highlighted(seg.text, highlight) : seg.text}</p>
             </div>
           </li>
         )
