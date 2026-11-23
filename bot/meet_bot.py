@@ -132,6 +132,16 @@ def join(page: Page, url: str, display_name: str) -> None:
     log("joined the call")
 
 
+def _save_page(page: Page, session_dir: Path) -> None:
+    # Meet's refusal screens change without notice; keep what the bot saw for debugging.
+    try:
+        page.screenshot(path=str(session_dir / "bot_error.png"))
+        text = " ".join(page.locator("body").inner_text().split())
+        log(f"page said: {text[:400]}")
+    except PlaywrightError:
+        pass
+
+
 def leave(page: Page) -> None:
     leave_button = _button(page, "leave")
     if _visible(leave_button):
@@ -179,6 +189,7 @@ def run(args: argparse.Namespace, profile_dir: Path) -> int:
             leave(page)
         except BotError as exc:
             log(f"error: {exc}")
+            _save_page(page, session_dir)
             report(args.session_id, error=str(exc))
             return 1
         except PlaywrightError as exc:
