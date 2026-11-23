@@ -312,17 +312,31 @@ def test_worker_skips_deleted_session(client, fakes, tmp_path):
     assert worker.is_alive()
 
 
-def test_bot_start_launches_subprocess(client, bot_procs):
+def test_bot_start_launches_subprocess(client, bot_procs, monkeypatch, tmp_path):
+    bot_python = tmp_path / "bot-venv" / "python"
+    monkeypatch.setattr(config, "BOT_PYTHON", str(bot_python))
+    monkeypatch.setattr(config, "BOT_MAX_MINUTES", 45)
     sid = start_bot(client)
     assert len(bot_procs) == 1
     proc = bot_procs[0]
-    assert proc.args == [sys.executable, "bot/meet_bot.py", "--url", MEET_URL, "--session-id", sid]
+    assert proc.args == [str(bot_python), "bot/meet_bot.py", "--url", MEET_URL, "--session-id", sid,
+                         "--max-minutes", "45"]
     assert proc.kwargs["cwd"] == config.REPO_ROOT
     session = client.get(f"/api/sessions/{sid}").json()
     assert session["status"] == "recording"
     assert session["source"] == "bot"
     assert session["meeting_url"] == MEET_URL
     assert (config.session_dir(sid) / "session.log").exists()
+
+
+def test_bot_python_defaults_to_bot_venv(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "BOT_PYTHON", "")
+    venv_python = tmp_path / "bin" / "python"
+    monkeypatch.setattr(config, "DEFAULT_BOT_PYTHON", str(venv_python))
+    assert config.bot_python() == sys.executable
+    venv_python.parent.mkdir()
+    venv_python.write_text("")
+    assert config.bot_python() == str(venv_python)
 
 
 def test_bot_rejects_non_meet_urls(client, bot_procs):

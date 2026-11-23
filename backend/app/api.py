@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -145,7 +144,8 @@ def start_bot(body: BotStart) -> dict:
     db.create_session(session_id=session_id, title=title, source="bot", status="recording",
                       meeting_url=body.meeting_url)
 
-    cmd = [sys.executable, config.BOT_SCRIPT, "--url", body.meeting_url, "--session-id", session_id]
+    cmd = [config.bot_python(), config.BOT_SCRIPT, "--url", body.meeting_url, "--session-id", session_id,
+           "--max-minutes", str(config.BOT_MAX_MINUTES)]
     # The bot writes its recording under DATA_DIR; pass the resolved path so both sides agree.
     env = {**os.environ, "DATA_DIR": str(config.DATA_DIR), "BACKEND_URL": config.BACKEND_URL}
     try:
