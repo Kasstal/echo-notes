@@ -1,32 +1,38 @@
-# React + TypeScript + Vite
+# EchoNotes dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + Vite + TypeScript, plain CSS. Two pages, switched with the URL hash:
 
-Currently, two official plugins are available:
+- `#/`: the sessions list, plus the "Upload recording" and "Send bot to Meet link" forms.
+- `#/sessions/<id>`: one session. It shows the status stepper, the summary under the
+  AI-generated label, and the speaker-colored transcript with rename and search, plus the
+  Export Markdown, Retry summary and Delete buttons. `?t=<seconds>` opens the transcript at
+  that moment; clicking a timestamp updates it.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Run
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm run build    # type-check and production build
+npm run lint
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+In dev, Vite proxies `/api` to `http://127.0.0.1:8000`, so start the backend first
+(`uvicorn app.main:app` in `backend/`). To point the dashboard at another backend, set
+`VITE_API_BASE`, e.g. `VITE_API_BASE=http://127.0.0.1:9000 npm run dev`.
+
+## API responses the dashboard expects
+
+Routes are the ones in the MVP spec. Where the spec leaves the response shape open, the
+client in `src/api.ts` expects:
+
+| Route | Response |
+|---|---|
+| `GET /api/sessions` | array of `{id, title, source: "upload" \| "bot", status, created_at (ISO), duration (seconds or null)}` |
+| `GET /api/sessions/{id}` | the same fields plus `error`, `transcript` (transcript.json or null) and `summary` (summary.json or null) |
+| `POST /api/sessions/upload`, `POST /api/sessions/bot` | `{id, status}` |
+| `GET /api/sessions/{id}/search?q=` | `{results: [segment, ...]}` or a bare array of segments |
+| `GET /api/sessions/{id}/export?format=md` | the Markdown file, ideally with `Content-Disposition: attachment` |
+| `PATCH .../speakers`, `POST .../retry-summary`, `DELETE ...` | any 2xx; the page reloads the session afterwards |
+
+Errors are shown to the user from FastAPI's `{"detail": "..."}` body when present.
