@@ -159,15 +159,15 @@ def test_empty_warnings_list_is_done(client, fakes):
 
 
 def test_summary_failure_keeps_transcript(client, fakes):
-    fakes.summarize_error = RuntimeError("Claude API timed out")
+    fakes.summarize_error = RuntimeError("OpenAI API timed out")
     session = upload_and_wait(client)
     assert session["status"] == "done_with_warnings"
-    assert session["error"] == "Summarization failed: RuntimeError: Claude API timed out"
+    assert session["error"] == "Summarization failed: RuntimeError: OpenAI API timed out"
     assert session["summary"] is None
     on_disk = json.loads((config.session_dir(session["id"]) / "transcript.json").read_text(encoding="utf-8"))
     assert on_disk == make_transcript()
     log = (config.session_dir(session["id"]) / "session.log").read_text(encoding="utf-8")
-    assert "Traceback" in log and "Claude API timed out" in log
+    assert "Traceback" in log and "OpenAI API timed out" in log
 
 
 def test_pipeline_failure_marks_failed_and_worker_survives(client, fakes):
