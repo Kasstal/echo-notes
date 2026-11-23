@@ -24,7 +24,7 @@ cp .env.example .env
 
 Fill in `.env`:
 
-- `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` — for summarization.
+- `OPENAI_API_KEY` and `OPENAI_MODEL` — for summarization.
 - `HF_TOKEN` — a Hugging Face token for diarization. You must also **accept the
   model terms** on Hugging Face for both:
   - `pyannote/speaker-diarization-3.1`
@@ -100,4 +100,4 @@ Writes WER/DER to `eval/results.md`.
 
 Audio and outputs live only under `data/`, which is gitignored. Recordings are
 never sent anywhere except the configured model APIs, and only the text
-transcript goes to the Claude API — ASR and diarization run locally.
+transcript goes to the OpenAI API — ASR and diarization run locally.

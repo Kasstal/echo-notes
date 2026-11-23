@@ -158,18 +158,20 @@ def test_summarize_empty_transcript_skips_the_api(fake_model):
     assert fake.calls == []
 
 
-@pytest.mark.parametrize("missing", ["ANTHROPIC_MODEL", "ANTHROPIC_API_KEY"])
+@pytest.mark.parametrize("missing", ["OPENAI_MODEL", "OPENAI_API_KEY"])
 def test_missing_config_gives_a_clear_error(monkeypatch, missing):
-    monkeypatch.setattr(sm.config, "ANTHROPIC_MODEL", "some-model")
-    monkeypatch.setattr(sm.config, "ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(sm.config, "OPENAI_MODEL", "some-model")
+    monkeypatch.setattr(sm.config, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(sm.config, missing, "")
     with pytest.raises(sm.SummaryError, match=missing):
         sm.summarize(SHORT)
 
 
 class FakeClient:
+    """Stands in for openai.OpenAI: client.responses.create(...) returns a canned response."""
+
     def __init__(self, response):
-        self.messages = self
+        self.responses = self
         self.response = response
         self.kwargs = None
 
@@ -178,16 +180,18 @@ class FakeClient:
         return self.response
 
 
-def _response(stop_reason, *texts):
-    blocks = [SimpleNamespace(type="thinking", thinking="")]
-    blocks += [SimpleNamespace(type="text", text=t) for t in texts]
-    return SimpleNamespace(stop_reason=stop_reason, content=blocks)
+def _response(text, *, refusal=False):
+    parts = [SimpleNamespace(type="refusal", refusal="I can't help with that.")] if refusal else []
+    if text:
+        parts.append(SimpleNamespace(type="output_text", text=text))
+    output = [SimpleNamespace(type="reasoning", summary=[]), SimpleNamespace(type="message", content=parts)]
+    return SimpleNamespace(output=output, output_text=text, status="completed")
 
 
 @pytest.fixture
 def fake_client(monkeypatch):
-    monkeypatch.setattr(sm.config, "ANTHROPIC_MODEL", "model-from-env")
-    monkeypatch.setattr(sm.config, "ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(sm.config, "OPENAI_MODEL", "model-from-env")
+    monkeypatch.setattr(sm.config, "OPENAI_API_KEY", "test-key")
 
     def install(response):
         client = FakeClient(response)
@@ -197,18 +201,43 @@ def fake_client(monkeypatch):
     return install
 
 
-def test_call_model_uses_env_model_and_joins_text_blocks(fake_client):
-    client = fake_client(_response("end_turn", '{"tldr": ', '"ok"}'))
+def test_call_model_uses_env_model_and_json_mode(fake_client):
+    client = fake_client(_response('{"tldr": "ok"}'))
     assert sm._call_model("sys", "user") == '{"tldr": "ok"}'
     assert client.kwargs["model"] == "model-from-env"
-    assert client.kwargs["system"] == "sys"
-    assert client.kwargs["messages"] == [{"role": "user", "content": "user"}]
+    assert client.kwargs["instructions"] == "sys"
+    assert client.kwargs["input"] == "user"
+    assert client.kwargs["text"] == {"format": {"type": "json_object"}}
 
 
 def test_call_model_reports_refusal(fake_client):
-    fake_client(_response("refusal"))
+    fake_client(_response("", refusal=True))
     with pytest.raises(sm.SummaryError, match="declined"):
         sm._call_model("sys", "user")
+
+
+def test_empty_reply_counts_as_invalid_and_is_retried(fake_client, monkeypatch):
+    replies = iter([_response(""), _response(json.dumps(VALID))])
+    client = fake_client(None)
+    monkeypatch.setattr(client, "create", lambda **kw: next(replies))
+    assert sm.summarize(SHORT) == VALID
+
+
+def test_every_request_input_mentions_json(fake_model, monkeypatch):
+    # The OpenAI API rejects JSON mode unless the input itself contains the word "json".
+    monkeypatch.setattr(sm, "CHUNK_CHARS", 60)
+    long = _transcript(
+        [{"start": i, "end": i + 1, "speaker": "SPEAKER_00", "text": "a sentence of some length"} for i in range(6)]
+    )
+    n = len(sm.split_chunks(sm.format_transcript(long), 60))
+    ok = json.dumps(VALID)
+    fake = fake_model(*([ok] * (n + 1)))
+    sm.summarize(long)
+    monkeypatch.setattr(sm, "CHUNK_CHARS", 60_000)
+    fake_short = fake_model(ok)
+    sm.summarize(SHORT)
+    for _, user in fake.calls + fake_short.calls:
+        assert "json" in user.lower()
 
 
 def test_split_chunks_respects_limit_and_line_boundaries():
