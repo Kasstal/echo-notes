@@ -2,7 +2,9 @@ import json
 import sqlite3
 import sys
 
+from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
+from starlette.routing import Mount
 
 from app import api, config, db, worker
 from app.main import app
@@ -466,6 +468,22 @@ def test_invalid_ids_are_404(client):
         assert client.post(f"/api/sessions/{bad}/retry-summary").status_code == 404, bad
         assert client.post(f"/api/sessions/{bad}/bot-finished", json={"error": "x"}).status_code == 404, bad
     assert client.get(f"/api/sessions/{sid}").status_code == 200
+
+
+def test_unknown_api_paths_never_reach_frontend(client, tmp_path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>app</html>", encoding="utf-8")
+    mount = Mount("/", app=StaticFiles(directory=dist, html=True), name="test-frontend")
+    app.router.routes.append(mount)
+    try:
+        assert client.get("/").status_code == 200
+        for method in ("GET", "POST", "DELETE", "PATCH"):
+            for path in ("/api", "/api/", "/api/nope", "/api/sessions/x/y/z"):
+                assert client.request(method, path).status_code == 404, (method, path)
+        assert client.get("/api/health").json() == {"status": "ok"}
+    finally:
+        app.router.routes.remove(mount)
 
 
 def test_empty_upload_is_rejected(client, data_dir):
