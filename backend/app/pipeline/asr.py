@@ -33,7 +33,9 @@ def transcribe(wav: Path) -> tuple[str, list[Word]]:
     Return the detected language and a flat list of words `{start, end, word}`.
     """
     model = _get_model()
-    segments, info = model.transcribe(str(wav), word_timestamps=True, vad_filter=True)
+    # Without multilingual, the language detected at the start is forced on the whole file and
+    # replies in a second language get dropped. info.language stays the main language.
+    segments, info = model.transcribe(str(wav), word_timestamps=True, vad_filter=True, multilingual=True)
 
     words: list[Word] = []
     # `segments` is a lazy generator; decoding actually happens in this loop.
