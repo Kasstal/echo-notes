@@ -65,7 +65,8 @@ def test_upload_uses_given_title_and_lists_newest_first(client):
     assert [s["id"] for s in sessions] == [second, first]
     assert sessions[1]["title"] == "Lecture 1"
     assert sessions[0]["title"] == "weird name"
-    assert set(sessions[0]) == {"id", "title", "source", "status", "created_at", "duration_sec", "error"}
+    assert set(sessions[0]) == {"id", "title", "source", "status", "created_at", "duration", "duration_sec", "error"}
+    assert sessions[0]["duration"] == sessions[0]["duration_sec"] == 3710.0
     assert (config.session_dir(second) / "original.wav").exists()
 
 

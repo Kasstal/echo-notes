@@ -76,6 +76,7 @@ def _list_item(row: MeetingSession) -> dict:
         "source": row.source,
         "status": row.status,
         "created_at": _iso(row.created_at),
+        "duration": row.duration_sec,
         "duration_sec": row.duration_sec,
         "error": row.error,
     }
