@@ -89,6 +89,29 @@ def test_diarization_fallback_marks_warnings(client, fakes):
     assert session["summary"] == SUMMARY
 
 
+def test_pipeline_warning_is_shown_and_logged(client, fakes):
+    fakes.unknown_speakers = True
+    fakes.warnings = ["diarization failed, speakers are not labeled: HF_TOKEN is not set."]
+    session = upload_and_wait(client)
+    assert session["status"] == "done_with_warnings"
+    assert session["has_warnings"] is True
+    assert session["error"] == "Diarization failed, speakers are not labeled: HF_TOKEN is not set."
+    log = (config.session_dir(session["id"]) / "session.log").read_text(encoding="utf-8")
+    assert "HF_TOKEN is not set" in log
+
+
+def test_no_speech_is_done_with_warnings(client, fakes):
+    fakes.warnings = ["no speech was recognized in the recording"]
+    session = upload_and_wait(client)
+    assert session["status"] == "done_with_warnings"
+    assert session["error"] == "No speech was recognized in the recording"
+
+
+def test_empty_warnings_list_is_done(client, fakes):
+    fakes.warnings = []
+    assert upload_and_wait(client)["status"] == "done"
+
+
 def test_summary_failure_keeps_transcript(client, fakes):
     fakes.summarize_error = RuntimeError("Claude API timed out")
     session = upload_and_wait(client)

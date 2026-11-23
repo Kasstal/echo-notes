@@ -223,9 +223,11 @@ def _run_summary_only(session_id: str) -> None:
 
 
 def _summarize_and_finish(session_id: str, transcript: dict) -> None:
-    warnings = []
-    if diarization_fell_back(transcript):
+    warnings = pipeline_warnings(transcript)
+    if not warnings and diarization_fell_back(transcript):
         warnings.append("Speaker diarization failed; all segments are labeled UNKNOWN")
+    for warning in warnings:
+        log_to_session(session_id, f"Pipeline warning: {warning}")
 
     db.set_status(session_id, "summarizing")
     log_to_session(session_id, "Status: summarizing")
@@ -244,6 +246,14 @@ def _summarize_and_finish(session_id: str, transcript: dict) -> None:
     else:
         db.set_status(session_id, "done", error=None, has_warnings=False)
         log_to_session(session_id, "Status: done")
+
+
+def pipeline_warnings(transcript: dict) -> list[str]:
+    raw = transcript.get("warnings")
+    if not isinstance(raw, list):
+        return []
+    cleaned = [str(w).strip() for w in raw if str(w).strip()]
+    return [w[0].upper() + w[1:] for w in cleaned]
 
 
 def diarization_fell_back(transcript: dict) -> bool:

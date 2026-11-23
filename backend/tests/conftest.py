@@ -41,6 +41,7 @@ class FakePipeline:
         self.process_error: Exception | None = None
         self.summarize_error: Exception | None = None
         self.unknown_speakers = False
+        self.warnings: list[str] | None = None
 
     def process(self, src: Path, session_dir: Path, on_status) -> dict:
         self.process_calls.append(Path(src))
@@ -49,6 +50,8 @@ class FakePipeline:
         for stage in ("normalizing", "transcribing", "diarizing"):
             on_status(stage)
         transcript = make_transcript(unknown=self.unknown_speakers)
+        if self.warnings is not None:
+            transcript["warnings"] = list(self.warnings)
         (session_dir / "transcript.json").write_text(json.dumps(transcript), encoding="utf-8")
         return transcript
 
