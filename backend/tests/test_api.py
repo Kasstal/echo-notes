@@ -183,6 +183,17 @@ def test_pipeline_failure_marks_failed_and_worker_survives(client, fakes):
     assert upload_and_wait(client)["status"] == "done"
 
 
+def test_decode_error_shows_file_name_not_server_path(client, monkeypatch):
+    def broken(src, session_dir, on_status, *, num_speakers=None):
+        raise RuntimeError(f"ffmpeg could not decode {src.name}: {src}: Invalid data found when processing input")
+
+    monkeypatch.setattr(worker.run, "process", broken)
+    session = upload_and_wait(client)
+    assert session["error"] == ("Transcription failed: RuntimeError: ffmpeg could not decode original.mp3: "
+                                "original.mp3: Invalid data found when processing input")
+    assert str(config.DATA_DIR) not in session["error"]
+
+
 def test_unimplemented_pipeline_gives_readable_error(client, fakes):
     fakes.process_error = NotImplementedError()
     session = upload_and_wait(client)
@@ -223,6 +234,19 @@ def test_retry_keeps_diarization_warning(client, fakes):
     assert "diarization" in session["error"].lower()
     assert "Summarization" not in session["error"]
     assert session["summary"] == SUMMARY
+
+
+def test_failed_retry_removes_stale_summary(client, fakes):
+    sid = upload_and_wait(client)["id"]
+    assert (config.session_dir(sid) / "summary.json").exists()
+
+    fakes.summarize_error = RuntimeError("rate limited")
+    assert client.post(f"/api/sessions/{sid}/retry-summary").status_code == 200
+    assert worker.wait_idle(10)
+    session = client.get(f"/api/sessions/{sid}").json()
+    assert session["status"] == "done_with_warnings"
+    assert session["summary"] is None
+    assert not (config.session_dir(sid) / "summary.json").exists()
 
 
 def test_retry_summary_conflicts(client, fakes):
