@@ -101,10 +101,21 @@ profile once, by hand, before using bot mode. The account's display name is
 `EchoNotes Notetaker (recording)` so participants can see what it is.
 
 ```bash
+python meet_bot.py --setup
+```
+
+This opens the profile on Google sign-in; sign in, then close the window. The
+profile has to be signed in: when it is not, Meet answers "You can't join this
+video call" instead of offering to ask to join.
+
+```bash
 python meet_bot.py --url "<meet-link>" --session-id "<id>"
 ```
 
-Joining a live call needs a human to create the meeting and admit the bot.
+Joining a live call needs a human to create the meeting and admit the bot. The
+bot turns its microphone and camera off before joining. If Meet refuses the
+join or shows a challenge, the bot stops and the session fails with the text
+Meet showed; it does not try to get around Google's checks.
 The backend starts the bot with `bot/.venv/bin/python`; set `BOT_PYTHON` in `.env` to use another interpreter.
 
 ### 5. Evaluation
