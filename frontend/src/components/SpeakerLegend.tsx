@@ -72,6 +72,7 @@ function SpeakerChip({ label, name, color, renamable, onRename }: ChipProps) {
             aria-label={`New name for ${name}`}
             value={value}
             autoFocus
+            onFocus={(e) => e.target.select()}
             disabled={saving}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => e.key === 'Escape' && setEditing(false)}
