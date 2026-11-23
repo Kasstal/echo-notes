@@ -406,3 +406,20 @@ def test_startup_recovery_marks_stuck_sessions_failed(data_dir, fakes):
             assert session["error"] == "Interrupted: server restarted"
         assert client.get(f"/api/sessions/{finished}").json()["status"] == "done"
     assert fakes.process_calls == []
+
+
+def test_startup_requeues_waiting_uploads(data_dir, fakes):
+    db.init_db()
+    waiting = db.create_session(title="waiting", source="upload", status="queued").id
+    sdir = config.session_dir(waiting)
+    sdir.mkdir(parents=True)
+    (sdir / "original.mp3").write_bytes(b"audio")
+    lost = db.create_session(title="lost", source="upload", status="queued").id
+
+    with TestClient(app) as client:
+        assert worker.wait_idle(10)
+        assert client.get(f"/api/sessions/{waiting}").json()["status"] == "done"
+        lost_session = client.get(f"/api/sessions/{lost}").json()
+        assert lost_session["status"] == "failed"
+        assert lost_session["error"] == "Interrupted: server restarted"
+    assert [p.name for p in fakes.process_calls] == ["original.mp3"]
