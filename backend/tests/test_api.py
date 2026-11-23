@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import sys
 
 from fastapi.testclient import TestClient
@@ -68,6 +69,49 @@ def test_upload_uses_given_title_and_lists_newest_first(client):
     assert set(sessions[0]) == {"id", "title", "source", "status", "created_at", "duration", "duration_sec", "error"}
     assert sessions[0]["duration"] == sessions[0]["duration_sec"] == 3710.0
     assert (config.session_dir(second) / "original.wav").exists()
+
+
+def test_upload_passes_num_speakers(client, fakes):
+    r = client.post("/api/sessions/upload", files={"file": ("a.mp3", b"x", "audio/mpeg")},
+                    data={"num_speakers": "3"})
+    assert r.status_code == 200, r.text
+    assert worker.wait_idle(10)
+    assert client.get(f"/api/sessions/{r.json()['id']}").json()["num_speakers"] == 3
+
+    r = client.post("/api/sessions/upload", files={"file": ("b.mp3", b"x", "audio/mpeg")},
+                    data={"num_speakers": ""})
+    assert r.status_code == 200, r.text
+    assert worker.wait_idle(10)
+    assert fakes.num_speakers_calls == [3, None]
+
+
+def test_upload_rejects_bad_num_speakers(client, data_dir):
+    for value in ("0", "-2", "two", "1.5"):
+        r = client.post("/api/sessions/upload", files={"file": ("a.mp3", b"x", "audio/mpeg")},
+                        data={"num_speakers": value})
+        assert r.status_code == 422, value
+    assert client.get("/api/sessions").json() == []
+    assert list((data_dir / "sessions").iterdir()) == []
+
+
+def test_init_db_adds_missing_columns_to_old_db(data_dir):
+    data_dir.mkdir(parents=True)
+    conn = sqlite3.connect(config.db_path())
+    conn.execute("CREATE TABLE sessions (id VARCHAR PRIMARY KEY, title VARCHAR NOT NULL, source VARCHAR NOT NULL,"
+                 " status VARCHAR NOT NULL, error VARCHAR, has_warnings BOOLEAN NOT NULL,"
+                 " created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, duration_sec FLOAT,"
+                 " meeting_url VARCHAR, original_filename VARCHAR)")
+    conn.execute("INSERT INTO sessions VALUES ('a', 'old', 'upload', 'done', NULL, 0,"
+                 " '2026-11-20 10:00:00', '2026-11-20 10:00:00', 12.5, NULL, 'old.mp3')")
+    conn.commit()
+    conn.close()
+
+    db.init_db()
+    db.init_db()
+    row = db.get_session("a")
+    assert row.title == "old" and row.num_speakers is None
+    db.update_session("a", num_speakers=2)
+    assert db.get_session("a").num_speakers == 2
 
 
 def test_get_returns_transcript_and_summary(client):

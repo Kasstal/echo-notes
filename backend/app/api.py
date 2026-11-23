@@ -88,11 +88,15 @@ def _metadata(row: MeetingSession) -> dict:
         "updated_at": _iso(row.updated_at),
         "meeting_url": row.meeting_url,
         "original_filename": row.original_filename,
+        "num_speakers": row.num_speakers,
     }
 
 
 @router.post("/sessions/upload")
-def upload_session(file: UploadFile = File(...), title: str | None = Form(None)) -> dict:
+def upload_session(file: UploadFile = File(...), title: str | None = Form(None),
+                   num_speakers: int | None = Form(None)) -> dict:
+    if num_speakers is not None and num_speakers < 1:
+        raise HTTPException(422, "num_speakers must be a positive integer")
     filename = Path(file.filename or "").name
     ext = Path(filename).suffix.lower()
     if not EXT_RE.fullmatch(ext):
@@ -116,7 +120,7 @@ def upload_session(file: UploadFile = File(...), title: str | None = Form(None))
 
     title = (title or "").strip() or Path(filename).stem or "Untitled recording"
     db.create_session(session_id=session_id, title=title, source="upload", status="queued",
-                      original_filename=filename or None)
+                      original_filename=filename or None, num_speakers=num_speakers)
     worker.enqueue_full(session_id, dst)
     return {"id": session_id, "status": "queued"}
 

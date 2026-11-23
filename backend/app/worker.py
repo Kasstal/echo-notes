@@ -197,7 +197,9 @@ def _run_full(session_id: str, src: Path) -> None:
             log.warning("ignoring unknown pipeline status %r for %s", status, session_id)
 
     try:
-        transcript = run.process(src, sdir, on_status)
+        row = db.get_session(session_id)
+        num_speakers = row.num_speakers if row is not None else None
+        transcript = run.process(src, sdir, on_status, num_speakers=num_speakers)
         _check_transcript(transcript)
     except Exception as exc:
         log_to_session(session_id, f"Transcription failed:\n{traceback.format_exc()}")

@@ -37,14 +37,16 @@ class FakePipeline:
 
     def __init__(self) -> None:
         self.process_calls: list[Path] = []
+        self.num_speakers_calls: list[int | None] = []
         self.summarize_calls: list[dict] = []
         self.process_error: Exception | None = None
         self.summarize_error: Exception | None = None
         self.unknown_speakers = False
         self.warnings: list[str] | None = None
 
-    def process(self, src: Path, session_dir: Path, on_status) -> dict:
+    def process(self, src: Path, session_dir: Path, on_status, *, num_speakers: int | None = None) -> dict:
         self.process_calls.append(Path(src))
+        self.num_speakers_calls.append(num_speakers)
         if self.process_error is not None:
             raise self.process_error
         for stage in ("normalizing", "transcribing", "diarizing"):
