@@ -1,0 +1,14 @@
+.git
+.env
+data
+**/node_modules
+**/.venv
+**/__pycache__
+**/.pytest_cache
+frontend/dist
+bot
+eval/data/**/*.wav
+eval/data/**/*.mp3
+eval/data/**/*.m4a
+eval/data/**/*.mp4
+eval/data/**/*.webm

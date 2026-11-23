@@ -31,8 +31,8 @@ HOST = _get("HOST", "127.0.0.1")
 PORT = int(_get("PORT", "8000"))
 CORS_ORIGINS = [o.strip() for o in _get("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 
-ANTHROPIC_API_KEY = _get("ANTHROPIC_API_KEY")
-ANTHROPIC_MODEL = _get("ANTHROPIC_MODEL")
+OPENAI_API_KEY = _get("OPENAI_API_KEY")
+OPENAI_MODEL = _get("OPENAI_MODEL")
 
 HF_TOKEN = _get("HF_TOKEN")
 

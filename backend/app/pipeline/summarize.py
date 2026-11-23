@@ -1,16 +1,16 @@
-"""Summarize a transcript with the Claude API into summary.json content."""
+"""Summarize a transcript with the OpenAI API into summary.json content."""
 
 from __future__ import annotations
 
 import json
 import re
 
-import anthropic
+import openai
 
 from .. import config
 
 SUMMARY_KEYS = ("tldr", "key_points", "decisions", "action_items")
-MAX_TOKENS = 16_000
+MAX_OUTPUT_TOKENS = 16_000
 CHUNK_CHARS = 60_000
 
 SYSTEM_PROMPT = """\
@@ -186,42 +186,54 @@ def split_chunks(text: str, limit: int) -> list[str]:
     return chunks
 
 
-_client: anthropic.Anthropic | None = None
+_client: openai.OpenAI | None = None
 
 
-def _get_client() -> anthropic.Anthropic:
+def _get_client() -> openai.OpenAI:
     global _client
-    if not config.ANTHROPIC_MODEL:
-        raise SummaryError("ANTHROPIC_MODEL is not set in .env")
-    if not config.ANTHROPIC_API_KEY:
-        raise SummaryError("ANTHROPIC_API_KEY is not set in .env")
+    if not config.OPENAI_MODEL:
+        raise SummaryError("OPENAI_MODEL is not set in .env")
+    if not config.OPENAI_API_KEY:
+        raise SummaryError("OPENAI_API_KEY is not set in .env")
     if _client is None:
-        _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        _client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
     return _client
+
+
+def _refused(response) -> bool:
+    return any(
+        getattr(part, "type", None) == "refusal"
+        for item in response.output or []
+        for part in getattr(item, "content", None) or []
+    )
 
 
 def _call_model(system: str, user: str) -> str:
     client = _get_client()
     try:
-        response = client.messages.create(
-            model=config.ANTHROPIC_MODEL,
-            max_tokens=MAX_TOKENS,
-            system=system,
-            messages=[{"role": "user", "content": user}],
+        response = client.responses.create(
+            model=config.OPENAI_MODEL,
+            instructions=system,
+            input=user,
+            max_output_tokens=MAX_OUTPUT_TOKENS,
+            # JSON mode: the reply is a JSON object. The API rejects it unless the input says "json".
+            text={"format": {"type": "json_object"}},
+            store=False,
         )
-    except anthropic.AuthenticationError as e:
-        raise SummaryError("Claude API rejected the key; check ANTHROPIC_API_KEY") from e
-    except anthropic.NotFoundError as e:
+    except openai.AuthenticationError as e:
+        raise SummaryError("OpenAI API rejected the key; check OPENAI_API_KEY") from e
+    except openai.NotFoundError as e:
         raise SummaryError(
-            f"Claude API does not know model {config.ANTHROPIC_MODEL!r}; check ANTHROPIC_MODEL"
+            f"OpenAI API does not know model {config.OPENAI_MODEL!r}; check OPENAI_MODEL"
         ) from e
-    except anthropic.APIStatusError as e:
-        raise SummaryError(f"Claude API error {e.status_code}: {e.message}") from e
-    except anthropic.APIConnectionError as e:
-        raise SummaryError(f"Could not reach the Claude API: {e}") from e
-    if response.stop_reason == "refusal":
+    except openai.APIStatusError as e:
+        raise SummaryError(f"OpenAI API error {e.status_code}: {e.message}") from e
+    except openai.APIConnectionError as e:
+        raise SummaryError(f"Could not reach the OpenAI API: {e}") from e
+    if _refused(response):
         raise SummaryError("The model declined to summarize this transcript")
-    return "".join(block.text for block in response.content if block.type == "text")
+    # An incomplete reply (output token limit) usually has cut-off JSON; parsing fails and we retry.
+    return response.output_text or ""
 
 
 def _ask_json(system: str, user: str) -> dict:
@@ -244,18 +256,19 @@ def summarize(transcript: dict) -> dict:
     if not text:
         return empty_summary()
     if len(text) <= CHUNK_CHARS:
-        return _ask_json(SYSTEM_PROMPT, f"Transcript:\n\n{text}")
+        return _ask_json(SYSTEM_PROMPT, f"Summarize this transcript as a JSON object.\n\n{text}")
 
     chunks = split_chunks(text, CHUNK_CHARS)
     partials = [
         _ask_json(
             SYSTEM_PROMPT,
             f"This is part {i} of {len(chunks)} of a longer transcript. "
-            f"Summarize only this part.\n\nTranscript part {i}/{len(chunks)}:\n\n{chunk}",
+            f"Summarize only this part as a JSON object.\n\nTranscript part {i}/{len(chunks)}:\n\n{chunk}",
         )
         for i, chunk in enumerate(chunks, start=1)
     ]
     return _ask_json(
         REDUCE_PROMPT,
-        "Partial summaries, in order:\n\n" + json.dumps(partials, ensure_ascii=False, indent=2),
+        "Merge these partial summaries into one JSON object. Partial summaries, in order:\n\n"
+        + json.dumps(partials, ensure_ascii=False, indent=2),
     )

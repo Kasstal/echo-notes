@@ -1,0 +1,21 @@
+services:
+  echonotes:
+    build: .
+    image: echonotes:latest
+    env_file: .env
+    environment:
+      # The container always listens on 8000 and serves the dashboard itself.
+      HOST: 0.0.0.0
+      PORT: "8000"
+    ports:
+      # Localhost only: there is no login and the data is meeting recordings.
+      - "127.0.0.1:${ECHONOTES_PORT:-8000}:8000"
+    volumes:
+      # Sessions, the SQLite db and eval outputs stay on the host, like a local run.
+      - ./data:/app/data
+      # Whisper and pyannote model downloads, kept between restarts.
+      - model-cache:/home/app/.cache
+    restart: unless-stopped
+
+volumes:
+  model-cache:

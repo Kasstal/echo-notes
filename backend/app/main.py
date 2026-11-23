@@ -18,6 +18,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     db.init_db()
     worker.recover_interrupted()
     worker.start()
+    worker.requeue_waiting()
     try:
         yield
     finally:

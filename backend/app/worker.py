@@ -118,13 +118,40 @@ def run_unless_busy(session_id: str, fn: Callable[[], None]) -> bool:
         return True
 
 
+def _can_requeue(row) -> bool:
+    # A queued upload never started, and its original file is still on disk.
+    if row.status != "queued":
+        return False
+    try:
+        find_original(row.id)
+    except FileNotFoundError:
+        return False
+    return True
+
+
 def recover_interrupted() -> list[str]:
-    """Mark sessions left mid-flight by a previous server process as failed."""
+    """Mark sessions left mid-flight by a previous server process as failed.
+
+    Queued uploads whose original file is still there are left queued for requeue_waiting().
+    """
     ids = []
     for row in db.sessions_with_status(db.NON_TERMINAL_STATUSES):
+        if _can_requeue(row):
+            continue
         db.set_status(row.id, "failed", error=INTERRUPTED_ERROR)
         log_to_session(row.id, f"{INTERRUPTED_ERROR} (was {row.status})")
         ids.append(row.id)
+    return ids
+
+
+def requeue_waiting() -> list[str]:
+    """Queue again the uploads that were still waiting when the server stopped. Call after start()."""
+    ids = []
+    for row in db.sessions_with_status(("queued",)):
+        if _can_requeue(row):
+            enqueue(row.id)
+            log_to_session(row.id, "Queued again after server restart")
+            ids.append(row.id)
     return ids
 
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { ApiError } from './api'
 
 // Loads data once, then reloads every `intervalMs` while `shouldPoll(data)` is true.
 export function usePolling<T>(
@@ -30,7 +31,8 @@ export function usePolling<T>(
       } catch (err) {
         if (cancelled) return
         setError(err as Error)
-        timer = window.setTimeout(run, intervalMs)
+        // 404 means the thing is gone (e.g. deleted in another tab); polling again will not help.
+        if (!(err instanceof ApiError && err.status === 404)) timer = window.setTimeout(run, intervalMs)
       }
     }
 
