@@ -104,9 +104,9 @@ profile once, by hand, before using bot mode. The account's display name is
 python meet_bot.py --setup
 ```
 
-This opens the profile on Google sign-in; sign in, then close the window. If the
-profile is not signed in, the bot joins as a guest named `BOT_DISPLAY_NAME`
-(only works in meetings that allow guests to ask to join).
+This opens the profile on Google sign-in; sign in, then close the window. The
+profile has to be signed in: when it is not, Meet answers "You can't join this
+video call" instead of offering to ask to join.
 
 ```bash
 python meet_bot.py --url "<meet-link>" --session-id "<id>"
