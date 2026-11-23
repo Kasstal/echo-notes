@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  ApiError,
   getSession,
   isTerminal,
   renameSpeakers,
@@ -129,6 +130,15 @@ export function SessionPage({ id, t }: { id: string; t: number | null }) {
     else searchStatus = `${n} ${n === 1 ? 'match' : 'matches'}`
   }
 
+  if (error instanceof ApiError && error.status === 404) {
+    return (
+      <div className="session-page">
+        <a className="back" href="#/">All sessions</a>
+        <p className="empty">This session no longer exists. It may have been deleted.</p>
+      </div>
+    )
+  }
+
   if (!session) {
     return (
       <div className="session-page">
@@ -171,7 +181,13 @@ export function SessionPage({ id, t }: { id: string; t: number | null }) {
         />
       </header>
 
-      <StatusStepper status={session.status} source={session.source} lastActive={lastActive} />
+      <StatusStepper
+        status={session.status}
+        source={session.source}
+        lastActive={lastActive}
+        hasTranscript={Boolean(transcript)}
+        hasSummary={Boolean(session.summary)}
+      />
 
       {session.error && (session.status === 'failed' || session.status === 'done_with_warnings') && (
         <p className={session.status === 'failed' ? 'banner banner--danger' : 'banner banner--warn'} role="alert">
