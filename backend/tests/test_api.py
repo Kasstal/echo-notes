@@ -1,7 +1,10 @@
 import json
+import sqlite3
 import sys
 
+from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
+from starlette.routing import Mount
 
 from app import api, config, db, worker
 from app.main import app
@@ -65,8 +68,52 @@ def test_upload_uses_given_title_and_lists_newest_first(client):
     assert [s["id"] for s in sessions] == [second, first]
     assert sessions[1]["title"] == "Lecture 1"
     assert sessions[0]["title"] == "weird name"
-    assert set(sessions[0]) == {"id", "title", "source", "status", "created_at", "duration_sec", "error"}
+    assert set(sessions[0]) == {"id", "title", "source", "status", "created_at", "duration", "duration_sec", "error"}
+    assert sessions[0]["duration"] == sessions[0]["duration_sec"] == 3710.0
     assert (config.session_dir(second) / "original.wav").exists()
+
+
+def test_upload_passes_num_speakers(client, fakes):
+    r = client.post("/api/sessions/upload", files={"file": ("a.mp3", b"x", "audio/mpeg")},
+                    data={"num_speakers": "3"})
+    assert r.status_code == 200, r.text
+    assert worker.wait_idle(10)
+    assert client.get(f"/api/sessions/{r.json()['id']}").json()["num_speakers"] == 3
+
+    r = client.post("/api/sessions/upload", files={"file": ("b.mp3", b"x", "audio/mpeg")},
+                    data={"num_speakers": ""})
+    assert r.status_code == 200, r.text
+    assert worker.wait_idle(10)
+    assert fakes.num_speakers_calls == [3, None]
+
+
+def test_upload_rejects_bad_num_speakers(client, data_dir):
+    for value in ("0", "-2", "two", "1.5"):
+        r = client.post("/api/sessions/upload", files={"file": ("a.mp3", b"x", "audio/mpeg")},
+                        data={"num_speakers": value})
+        assert r.status_code == 422, value
+    assert client.get("/api/sessions").json() == []
+    assert list((data_dir / "sessions").iterdir()) == []
+
+
+def test_init_db_adds_missing_columns_to_old_db(data_dir):
+    data_dir.mkdir(parents=True)
+    conn = sqlite3.connect(config.db_path())
+    conn.execute("CREATE TABLE sessions (id VARCHAR PRIMARY KEY, title VARCHAR NOT NULL, source VARCHAR NOT NULL,"
+                 " status VARCHAR NOT NULL, error VARCHAR, has_warnings BOOLEAN NOT NULL,"
+                 " created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, duration_sec FLOAT,"
+                 " meeting_url VARCHAR, original_filename VARCHAR)")
+    conn.execute("INSERT INTO sessions VALUES ('a', 'old', 'upload', 'done', NULL, 0,"
+                 " '2026-11-20 10:00:00', '2026-11-20 10:00:00', 12.5, NULL, 'old.mp3')")
+    conn.commit()
+    conn.close()
+
+    db.init_db()
+    db.init_db()
+    row = db.get_session("a")
+    assert row.title == "old" and row.num_speakers is None
+    db.update_session("a", num_speakers=2)
+    assert db.get_session("a").num_speakers == 2
 
 
 def test_get_returns_transcript_and_summary(client):
@@ -86,6 +133,29 @@ def test_diarization_fallback_marks_warnings(client, fakes):
     assert session["has_warnings"] is True
     assert "diarization" in session["error"].lower()
     assert session["summary"] == SUMMARY
+
+
+def test_pipeline_warning_is_shown_and_logged(client, fakes):
+    fakes.unknown_speakers = True
+    fakes.warnings = ["diarization failed, speakers are not labeled: HF_TOKEN is not set."]
+    session = upload_and_wait(client)
+    assert session["status"] == "done_with_warnings"
+    assert session["has_warnings"] is True
+    assert session["error"] == "Diarization failed, speakers are not labeled: HF_TOKEN is not set."
+    log = (config.session_dir(session["id"]) / "session.log").read_text(encoding="utf-8")
+    assert "HF_TOKEN is not set" in log
+
+
+def test_no_speech_is_done_with_warnings(client, fakes):
+    fakes.warnings = ["no speech was recognized in the recording"]
+    session = upload_and_wait(client)
+    assert session["status"] == "done_with_warnings"
+    assert session["error"] == "No speech was recognized in the recording"
+
+
+def test_empty_warnings_list_is_done(client, fakes):
+    fakes.warnings = []
+    assert upload_and_wait(client)["status"] == "done"
 
 
 def test_summary_failure_keeps_transcript(client, fakes):
@@ -111,6 +181,17 @@ def test_pipeline_failure_marks_failed_and_worker_survives(client, fakes):
     fakes.process_error = None
     assert worker.is_alive()
     assert upload_and_wait(client)["status"] == "done"
+
+
+def test_decode_error_shows_file_name_not_server_path(client, monkeypatch):
+    def broken(src, session_dir, on_status, *, num_speakers=None):
+        raise RuntimeError(f"ffmpeg could not decode {src.name}: {src}: Invalid data found when processing input")
+
+    monkeypatch.setattr(worker.run, "process", broken)
+    session = upload_and_wait(client)
+    assert session["error"] == ("Transcription failed: RuntimeError: ffmpeg could not decode original.mp3: "
+                                "original.mp3: Invalid data found when processing input")
+    assert str(config.DATA_DIR) not in session["error"]
 
 
 def test_unimplemented_pipeline_gives_readable_error(client, fakes):
@@ -153,6 +234,19 @@ def test_retry_keeps_diarization_warning(client, fakes):
     assert "diarization" in session["error"].lower()
     assert "Summarization" not in session["error"]
     assert session["summary"] == SUMMARY
+
+
+def test_failed_retry_removes_stale_summary(client, fakes):
+    sid = upload_and_wait(client)["id"]
+    assert (config.session_dir(sid) / "summary.json").exists()
+
+    fakes.summarize_error = RuntimeError("rate limited")
+    assert client.post(f"/api/sessions/{sid}/retry-summary").status_code == 200
+    assert worker.wait_idle(10)
+    session = client.get(f"/api/sessions/{sid}").json()
+    assert session["status"] == "done_with_warnings"
+    assert session["summary"] is None
+    assert not (config.session_dir(sid) / "summary.json").exists()
 
 
 def test_retry_summary_conflicts(client, fakes):
@@ -288,17 +382,31 @@ def test_worker_skips_deleted_session(client, fakes, tmp_path):
     assert worker.is_alive()
 
 
-def test_bot_start_launches_subprocess(client, bot_procs):
+def test_bot_start_launches_subprocess(client, bot_procs, monkeypatch, tmp_path):
+    bot_python = tmp_path / "bot-venv" / "python"
+    monkeypatch.setattr(config, "BOT_PYTHON", str(bot_python))
+    monkeypatch.setattr(config, "BOT_MAX_MINUTES", 45)
     sid = start_bot(client)
     assert len(bot_procs) == 1
     proc = bot_procs[0]
-    assert proc.args == [sys.executable, "bot/meet_bot.py", "--url", MEET_URL, "--session-id", sid]
+    assert proc.args == [str(bot_python), "bot/meet_bot.py", "--url", MEET_URL, "--session-id", sid,
+                         "--max-minutes", "45"]
     assert proc.kwargs["cwd"] == config.REPO_ROOT
     session = client.get(f"/api/sessions/{sid}").json()
     assert session["status"] == "recording"
     assert session["source"] == "bot"
     assert session["meeting_url"] == MEET_URL
     assert (config.session_dir(sid) / "session.log").exists()
+
+
+def test_bot_python_defaults_to_bot_venv(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "BOT_PYTHON", "")
+    venv_python = tmp_path / "bin" / "python"
+    monkeypatch.setattr(config, "DEFAULT_BOT_PYTHON", str(venv_python))
+    assert config.bot_python() == sys.executable
+    venv_python.parent.mkdir()
+    venv_python.write_text("")
+    assert config.bot_python() == str(venv_python)
 
 
 def test_bot_rejects_non_meet_urls(client, bot_procs):
@@ -384,6 +492,22 @@ def test_invalid_ids_are_404(client):
         assert client.post(f"/api/sessions/{bad}/retry-summary").status_code == 404, bad
         assert client.post(f"/api/sessions/{bad}/bot-finished", json={"error": "x"}).status_code == 404, bad
     assert client.get(f"/api/sessions/{sid}").status_code == 200
+
+
+def test_unknown_api_paths_never_reach_frontend(client, tmp_path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>app</html>", encoding="utf-8")
+    mount = Mount("/", app=StaticFiles(directory=dist, html=True), name="test-frontend")
+    app.router.routes.append(mount)
+    try:
+        assert client.get("/").status_code == 200
+        for method in ("GET", "POST", "DELETE", "PATCH"):
+            for path in ("/api", "/api/", "/api/nope", "/api/sessions/x/y/z"):
+                assert client.request(method, path).status_code == 404, (method, path)
+        assert client.get("/api/health").json() == {"status": "ok"}
+    finally:
+        app.router.routes.remove(mount)
 
 
 def test_empty_upload_is_rejected(client, data_dir):

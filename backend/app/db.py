@@ -46,6 +46,7 @@ class MeetingSession(SQLModel, table=True):
     duration_sec: float | None = None
     meeting_url: str | None = None
     original_filename: str | None = None
+    num_speakers: int | None = None
 
 
 _engine: Engine | None = None
@@ -64,6 +65,19 @@ def init_db() -> None:
         _engine = create_engine(url, connect_args={"check_same_thread": False})
         _engine_url = url
     SQLModel.metadata.create_all(_engine)
+    _add_missing_columns(_engine)
+
+
+# Columns added after the first release; older local databases get them on startup.
+_LATE_COLUMNS = {"num_speakers": "INTEGER"}
+
+
+def _add_missing_columns(engine: Engine) -> None:
+    with engine.begin() as conn:
+        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(sessions)"))}
+        for name, sql_type in _LATE_COLUMNS.items():
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE sessions ADD COLUMN {name} {sql_type}"))
 
 
 def get_engine() -> Engine:

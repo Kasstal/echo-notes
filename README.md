@@ -105,6 +105,7 @@ python meet_bot.py --url "<meet-link>" --session-id "<id>"
 ```
 
 Joining a live call needs a human to create the meeting and admit the bot.
+The backend starts the bot with `bot/.venv/bin/python`; set `BOT_PYTHON` in `.env` to use another interpreter.
 
 ### 5. Evaluation
 

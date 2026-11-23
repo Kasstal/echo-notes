@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -40,12 +41,23 @@ WHISPER_DEVICE = _get("WHISPER_DEVICE", "cpu")
 WHISPER_COMPUTE_TYPE = _get("WHISPER_COMPUTE_TYPE", "int8")
 
 BOT_SCRIPT = "bot/meet_bot.py"
+# Playwright lives in the bot's own venv, not in the backend's.
+BOT_PYTHON = _get("BOT_PYTHON")
+DEFAULT_BOT_PYTHON = "bot/.venv/Scripts/python.exe" if os.name == "nt" else "bot/.venv/bin/python"
 BOT_PROFILE_DIR = _repo_path(_get("BOT_PROFILE_DIR", "bot/profile"))
 BOT_DISPLAY_NAME = _get("BOT_DISPLAY_NAME", "EchoNotes Notetaker (recording)")
 BOT_MAX_MINUTES = int(_get("BOT_MAX_MINUTES", "90"))
 BACKEND_URL = _get("BACKEND_URL", "http://127.0.0.1:8000")
 
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
+
+
+def bot_python() -> str:
+    """BOT_PYTHON if set, else the bot venv's python, else the backend's own interpreter."""
+    if BOT_PYTHON:
+        return str(_repo_path(BOT_PYTHON))
+    default = _repo_path(DEFAULT_BOT_PYTHON)
+    return str(default) if default.is_file() else sys.executable
 
 
 def db_path() -> Path:

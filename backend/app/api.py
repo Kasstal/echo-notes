@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,6 +75,7 @@ def _list_item(row: MeetingSession) -> dict:
         "source": row.source,
         "status": row.status,
         "created_at": _iso(row.created_at),
+        "duration": row.duration_sec,
         "duration_sec": row.duration_sec,
         "error": row.error,
     }
@@ -88,11 +88,15 @@ def _metadata(row: MeetingSession) -> dict:
         "updated_at": _iso(row.updated_at),
         "meeting_url": row.meeting_url,
         "original_filename": row.original_filename,
+        "num_speakers": row.num_speakers,
     }
 
 
 @router.post("/sessions/upload")
-def upload_session(file: UploadFile = File(...), title: str | None = Form(None)) -> dict:
+def upload_session(file: UploadFile = File(...), title: str | None = Form(None),
+                   num_speakers: int | None = Form(None)) -> dict:
+    if num_speakers is not None and num_speakers < 1:
+        raise HTTPException(422, "num_speakers must be a positive integer")
     filename = Path(file.filename or "").name
     ext = Path(filename).suffix.lower()
     if not EXT_RE.fullmatch(ext):
@@ -116,7 +120,7 @@ def upload_session(file: UploadFile = File(...), title: str | None = Form(None))
 
     title = (title or "").strip() or Path(filename).stem or "Untitled recording"
     db.create_session(session_id=session_id, title=title, source="upload", status="queued",
-                      original_filename=filename or None)
+                      original_filename=filename or None, num_speakers=num_speakers)
     worker.enqueue_full(session_id, dst)
     return {"id": session_id, "status": "queued"}
 
@@ -144,7 +148,8 @@ def start_bot(body: BotStart) -> dict:
     db.create_session(session_id=session_id, title=title, source="bot", status="recording",
                       meeting_url=body.meeting_url)
 
-    cmd = [sys.executable, config.BOT_SCRIPT, "--url", body.meeting_url, "--session-id", session_id]
+    cmd = [config.bot_python(), config.BOT_SCRIPT, "--url", body.meeting_url, "--session-id", session_id,
+           "--max-minutes", str(config.BOT_MAX_MINUTES)]
     # The bot writes its recording under DATA_DIR; pass the resolved path so both sides agree.
     env = {**os.environ, "DATA_DIR": str(config.DATA_DIR), "BACKEND_URL": config.BACKEND_URL}
     try:

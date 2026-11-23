@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -42,6 +42,15 @@ def health() -> dict:
 
 
 app.include_router(api_router)
+
+_ALL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+
+
+# Unknown /api paths (e.g. /api/sessions/.. normalized to /api/) must 404, not reach the frontend mount.
+@app.api_route("/api", methods=_ALL_METHODS, include_in_schema=False)
+@app.api_route("/api/{path:path}", methods=_ALL_METHODS, include_in_schema=False)
+def api_not_found(path: str = "") -> None:
+    raise HTTPException(404, "Not found")
 
 # Mounted last so it never shadows /api routes.
 if config.FRONTEND_DIST.is_dir():

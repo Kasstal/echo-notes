@@ -6,6 +6,7 @@ One worker thread drains a queue.Queue so CPU-heavy jobs run one at a time.
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import threading
 import time
@@ -167,6 +168,13 @@ def log_to_session(session_id: str, text: str) -> None:
         log.exception("could not write session.log for %s", session_id)
 
 
+def _hide_paths(text: str, sdir: Path) -> str:
+    """Drop the server-side session folder from an error so users only see file names."""
+    for folder in {str(sdir), str(sdir.resolve())}:
+        text = text.replace(folder + os.sep, "")
+    return text
+
+
 def describe(exc: BaseException) -> str:
     msg = str(exc).strip()
     return f"{type(exc).__name__}: {msg}" if msg else type(exc).__name__
@@ -224,11 +232,13 @@ def _run_full(session_id: str, src: Path) -> None:
             log.warning("ignoring unknown pipeline status %r for %s", status, session_id)
 
     try:
-        transcript = run.process(src, sdir, on_status)
+        row = db.get_session(session_id)
+        num_speakers = row.num_speakers if row is not None else None
+        transcript = run.process(src, sdir, on_status, num_speakers=num_speakers)
         _check_transcript(transcript)
     except Exception as exc:
         log_to_session(session_id, f"Transcription failed:\n{traceback.format_exc()}")
-        db.set_status(session_id, "failed", error=f"Transcription failed: {describe(exc)}")
+        db.set_status(session_id, "failed", error=f"Transcription failed: {_hide_paths(describe(exc), sdir)}")
         return
 
     transcript_path = sdir / "transcript.json"
@@ -250,18 +260,23 @@ def _run_summary_only(session_id: str) -> None:
 
 
 def _summarize_and_finish(session_id: str, transcript: dict) -> None:
-    warnings = []
-    if diarization_fell_back(transcript):
+    warnings = pipeline_warnings(transcript)
+    if not warnings and diarization_fell_back(transcript):
         warnings.append("Speaker diarization failed; all segments are labeled UNKNOWN")
+    for warning in warnings:
+        log_to_session(session_id, f"Pipeline warning: {warning}")
 
     db.set_status(session_id, "summarizing")
     log_to_session(session_id, "Status: summarizing")
+    summary_path = config.session_dir(session_id) / "summary.json"
     try:
         summary = summarize.summarize(transcript)
         _check_summary(summary)
-        db.write_json_atomic(config.session_dir(session_id) / "summary.json", summary)
+        db.write_json_atomic(summary_path, summary)
     except Exception as exc:
         log_to_session(session_id, f"Summarization failed:\n{traceback.format_exc()}")
+        # A summary from an earlier run would no longer match the error shown next to it.
+        summary_path.unlink(missing_ok=True)
         warnings.append(f"Summarization failed: {describe(exc)}")
 
     if warnings:
@@ -271,6 +286,14 @@ def _summarize_and_finish(session_id: str, transcript: dict) -> None:
     else:
         db.set_status(session_id, "done", error=None, has_warnings=False)
         log_to_session(session_id, "Status: done")
+
+
+def pipeline_warnings(transcript: dict) -> list[str]:
+    raw = transcript.get("warnings")
+    if not isinstance(raw, list):
+        return []
+    cleaned = [str(w).strip() for w in raw if str(w).strip()]
+    return [w[0].upper() + w[1:] for w in cleaned]
 
 
 def diarization_fell_back(transcript: dict) -> bool:
