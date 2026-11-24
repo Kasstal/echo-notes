@@ -95,27 +95,33 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-The bot runs a **headed** Chromium with a persistent profile at
-`bot/profile/` (gitignored). Sign the dedicated bot Google account into that
-profile once, by hand, before using bot mode. The account's display name is
+The bot drives an installed **Google Chrome**, headed, with a persistent
+profile at `bot/profile/` (gitignored). Google refuses to sign in to
+Playwright's bundled Chromium ("This browser or app may not be secure"), and
+Meet refuses a signed-out bot ("You can't join this video call"), so Chrome is
+the default (`BOT_BROWSER=chrome`). Sign the dedicated bot Google account into
+the profile once, by hand. The account's display name is
 `EchoNotes Notetaker (recording)` so participants can see what it is.
 
 ```bash
 python meet_bot.py --setup
 ```
 
-This opens the profile on Google sign-in; sign in, then close the window. The
-profile has to be signed in: when it is not, Meet answers "You can't join this
-video call" instead of offering to ask to join.
+This opens a plain Chrome window (not driven by Playwright) on Google sign-in;
+sign in, then quit Chrome.
 
 ```bash
 python meet_bot.py --url "<meet-link>" --session-id "<id>"
 ```
 
 Joining a live call needs a human to create the meeting and admit the bot. The
-bot turns its microphone and camera off before joining. If Meet refuses the
-join or shows a challenge, the bot stops and the session fails with the text
-Meet showed; it does not try to get around Google's checks.
+bot turns its microphone and camera off, joins, and records the other
+participants' audio into `data/sessions/<id>/raw.webm` in 5-second slices, so a
+crash still leaves the audio recorded so far. It leaves when the call ends, when
+it has been the only participant for 60 s, or after `BOT_MAX_MINUTES`, then hands
+the recording to the pipeline. If Meet refuses the join or shows a challenge,
+the bot stops and the session fails with the text Meet showed; it does not try
+to get around Google's checks.
 The backend starts the bot with `bot/.venv/bin/python`; set `BOT_PYTHON` in `.env` to use another interpreter.
 
 ### 5. Evaluation
